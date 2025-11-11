@@ -5,32 +5,34 @@ import matplotlib.pyplot as plt
 from typing import Type
 
 class FEMDVR:
-    """ A simple FEMDVR class. 
+    """Finite Element Method with Discrete Variable Representation.
     
-    Interface very similar to the GaussLobattto classes.
-    
+    Constructs global differentiation matrices by combining local DVR elements
+    with interface matching constraints for quantum mechanical calculations.
     """
     def __init__(self, nodes, n_points, element_class : Type[GaussLobatto]):
-        """Constructor.
+        """Initialize FEM-DVR grid and matrices.
         
         Args:
-            nodes (ndarray): Vector of nodes of boundaries of elements. Number of elements is this len(nodes) - 1. nodes[i] and nodes[i+1] defines the boundary of element i.
-            n_points (ndarray): Number of *total* grid points per element. The polynomial degree over  element i is n_points[i] - 1.
-            element_class: Class for the elements. A subclass of GaussLobatto (which is an abstract base class).
+            nodes: Element boundary points (length n_elements + 1)
+            n_points: Number of grid points per element (length n_elements)
+            element_class: DVR element class (subclass of GaussLobatto)
             
-        The constructor creates the following attributes:
-            self.D (ndarray): Differentiation matrix
-            self.D2 (ndarray): Second-order differentiation matrix
-            self.R (ndarray): Matrix that identifies nodes at element interfaces.
-            self.x (ndarray): Nodes
-            self.w (ndarray): Weights
-            self.dvr (list): List of dvr object instances for each element
-            self.edge_indices (ndarray): Indices of elements of x corresponding to element boundaries
-            
+        Creates:
+            x: Global grid points
+            w: Quadrature weights  
+            D: First derivative matrix (original basis)
+            D2: Second derivative matrix (original basis)
+            D_symmetric: Symmetric first derivative matrix
+            D2_symmetric: Symmetric second derivative matrix
+            S: Mass/overlap matrix
+            S_sqrt: Square root of mass matrix diagonal
+            S_inv_sqrt: Inverse square root of mass matrix diagonal
+            R: Interface matching matrix
         """
         
-        self.n_points = n_points
-        self.nodes = nodes
+        self.n_points = np.array( n_points )
+        self.nodes = np.array( nodes )
         self.degrees = self.n_points - 1
         self.n_intervals = len(nodes) - 1
         n_intervals = self.n_intervals
@@ -100,12 +102,19 @@ class FEMDVR:
         
         # S is diagonal. Compute square root of inverse of S directly.
         S_inv_sqrt = np.diag(1.0 / np.sqrt(np.diag(self.S)))
-        self.D2 = csr_matrix(S_inv_sqrt @ D2 @ S_inv_sqrt)
-        self.D = csr_matrix(S_inv_sqrt @ D @ S_inv_sqrt)
 
-        # Store square root of overlap matrix diagonal for converting wavefunctions.
+        # Store symmetric versions of the differentiation matrices.
+        self.D2_symmetric = csr_matrix(S_inv_sqrt @ D2 @ S_inv_sqrt)
+        self.D_symmetric = csr_matrix(S_inv_sqrt @ D @ S_inv_sqrt)
+
+        # Compute differentiation matrices in the original basis.
+        self.D = csr_matrix(np.linalg.solve(self.S,  D))
+        self.D2 = csr_matrix(np.linalg.solve(self.S, D2))
+        
+        # Store square root of overlap matrix diagonal for converting wavefunctions when using symmetric operators.
         self.S_inv_sqrt = 1.0 / np.sqrt(np.diag(self.S))
         self.S_sqrt = np.sqrt(np.diag(self.S))
+
 
         self.R = R
         self.x = x
@@ -115,47 +124,15 @@ class FEMDVR:
 
     
 if __name__ == '__main__':
-    from lobatto import GaussLegendreLobatto, GaussChebyshevLobatto
-    a = -10
-    b = 10
-    n_elem = 10
-    points_per_elem = 11
-
-    nodes = a + np.linspace(0, (b-a)**.5, n_elem+1)**2
-    n_points = np.ones((n_elem,), dtype = int) * points_per_elem
-
+    # Simple test of the FEMDVR class.
+    from lobatto import GaussLegendreLobatto
+    nodes = [0.0, 1.0, 2.0]
+    n_points = [5, 5]
     femdvr = FEMDVR(nodes, n_points, GaussLegendreLobatto)
 
-    # Get nodes and weights and differentiation matrix.
-    x = femdvr.x
-    w = femdvr.w
-    D = femdvr.D
-    D2 = femdvr.D2
-    ei = femdvr.edge_indices
-    
-    H_full = -0.5 * D2 + np.diag(0.5*x**2)
-    H = H_full[1:-1,1:-1]
-
-    E, U = np.linalg.eig(H)
-    i = np.argsort(E)
-    E = E[i]
-    U = U[:,i]
-
-    print('Orthogonality check: ', U[:,:4].T @ np.diag(w[1:-1]) @ U[:,:4])
-    print(E)
-    
-    import matplotlib.pyplot as plt
-    plt.figure()
-    for i in range(3):
-        y = np.zeros((len(x),))
-        y[1:-1] = U[:,i]
-        plt.plot(x, y, color = f'C{i}', marker = '.', linestyle = '-')
-        plt.plot(x[ei], y[ei], color = f'C{i}', marker = 'o', linestyle = 'none')    
-    plt.show()
-    
-    plt.figure()
-    plt.imshow(H, cmap='viridis', aspect='auto')
-    plt.colorbar()
-    plt.title('Hamiltonian matrix')
-    plt.show()
+    print("x:", femdvr.x)
+    print("w:", femdvr.w)
+    print("D:\n", femdvr.D.toarray())
+    print("D2:\n", femdvr.D2.toarray())
+    print("S:\n", femdvr.S)
     
