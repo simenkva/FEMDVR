@@ -9,6 +9,9 @@ class FEMDVR:
     
     Constructs global differentiation matrices by combining local DVR elements
     with interface matching constraints for quantum mechanical calculations.
+    
+    NOTE: Only works with Gauss-Legendre-Lobatto elements currently.
+    
     """
     def __init__(self, nodes, n_points, element_class : Type[GaussLobatto]):
         """Initialize FEM-DVR grid and matrices.
